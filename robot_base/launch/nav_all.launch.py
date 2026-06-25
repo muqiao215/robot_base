@@ -26,23 +26,10 @@ def generate_launch_description():
         description='Full path to the map yaml file to use'
     )
 
-    # ================= 2. 底盘驱动 =================
-    drive_node = Node(
-        package='robot_base',
-        executable='drive_node',
-        name='drive_node',
-        output='screen'
-    )
+    # 注意：底盘 drive_node 与 base_link->laser 静态 TF 已拆到 drive.launch.py，
+    # 单独启动管理，方便调试底盘时不影响导航栈。先启动 drive.launch.py 再启动本文件。
 
-    # ================= 3. 静态TF：base_link → laser =================
-    static_tf = Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        arguments=['0.05', '0.0', '1.35', '0.0', '-0.244346', '3.1415926', 'base_link', 'laser'],
-        name='static_tf_laser'
-    )
-
-    # ================= 4. RViz 地图重发布 =================
+    # ================= RViz 地图重发布 =================
     # map_server 的 /map 是 transient local；部分远端 RViz 对历史地图接收不稳定。
     # 这里用 volatile QoS 低频重发 /map_rviz，只服务 RViz，不影响 Nav2 的 transient-local 订阅。
     map_republisher = Node(
@@ -74,8 +61,6 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        drive_node,
-        static_tf,
         map_republisher,
         declare_params_file_cmd,
         declare_map_cmd,
