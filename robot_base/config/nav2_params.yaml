@@ -5,12 +5,19 @@ amcl:
     odom_frame_id: odom
     global_frame_id: map
     laser_scan_topic: /scan
-    set_initial_pose: false
+    set_initial_pose: true
     initial_pose:
       x: -73.486
       y: -4.608
       z: 0.0
       yaw: 0.0
+    # 麦克纳姆底盘用全向运动模型；alpha5 仅 omni 模型使用。
+    robot_model_type: "nav2_amcl::OmniMotionModel"
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
     min_particles: 500
     max_particles: 2000
     transform_tolerance: 0.5
@@ -29,7 +36,7 @@ controller_server:
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.05
-      movement_time_allowance: 90.0
+      movement_time_allowance: 10.0
 
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
@@ -46,12 +53,12 @@ controller_server:
       lookahead_time: 1.5
       use_velocity_scaled_lookahead_dist: true
       rotate_to_heading_angular_vel: 0.50
-      min_approach_linear_velocity: 0.12
+      min_approach_linear_velocity: 0.05
       approach_velocity_scaling_dist: 0.7
       use_collision_detection: true
-      max_allowed_time_to_collision_up_to_carrot: 1.0
+      max_allowed_time_to_collision_up_to_carrot: 0.6
       use_regulated_linear_velocity_scaling: true
-      use_cost_regulated_linear_velocity_scaling: false
+      use_cost_regulated_linear_velocity_scaling: true
       regulated_linear_scaling_min_radius: 0.90
       regulated_linear_scaling_min_speed: 0.12
       use_rotate_to_heading: false
@@ -68,8 +75,18 @@ planner_server:
     GridBased:
       plugin: "nav2_smac_planner::SmacPlanner2D"
       tolerance: 0.5
-      use_astar: False
       allow_unknown: True
+      # 大地图上用定向 A* 而非全图 Dijkstra；并限制规划时间/迭代，超时快失败而非干等。
+      use_astar: True
+      # downsample_costmap 关闭：开启时按 downsampling_factor 把 0.1m 图压成 0.2m 粗网格(取2x2最大cost)，
+      # 紧贴墙的自由格被"传染"成 lethal，导致起/终点明明 cost=0 却被瞬间判死、no valid path。实测关闭后规划恢复正常。
+      downsample_costmap: False
+      downsampling_factor: 2
+      max_planning_time: 1.0
+      max_iterations: 200000
+      max_on_approach_iterations: 200
+      cost_travel_multiplier: 1.0
+      use_final_approach_orientation: false
 
 local_costmap:
   local_costmap:
@@ -96,12 +113,15 @@ local_costmap:
           min_obstacle_height: -0.2
           max_obstacle_height: 1.5
           obstacle_min_range: 0.08
-          obstacle_max_range: 8.0
+          # marking 范围必须 ≤ raytrace 范围！否则 3~8m 标记的障碍永远清不掉(清除只到raytrace_max_range)。
+          # 收到近场 3m：旋转时 TF 滞后会把远墙角度拖尾糊成幻影，近场拖尾的米数小，远墙不再污染门洞。
+          obstacle_max_range: 3.0
+          raytrace_max_range: 3.5
           inf_is_valid: True
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.40
+        inflation_radius: 0.30
 
 global_costmap:
   global_costmap:
@@ -119,7 +139,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.45
+        inflation_radius: 0.35
 
 
 
@@ -174,9 +194,10 @@ bt_navigator:
     robot_base_frame: base_link
     odom_topic: /odom
     bt_loop_duration: 10
-    default_server_timeout: 20
+    default_server_timeout: 20  # 毫秒，BT action node 等 server ACK 的超时；不要盲改小。
     wait_for_service_timeout: 1000
-    action_server_result_timeout: 900.0
+    # 若单次导航通常不超过 2 分钟可用 120；路线本身就更长则改回 900。
+    action_server_result_timeout: 120.0
     navigators: ["navigate_to_pose", "navigate_through_poses"]
     navigate_to_pose:
       plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
